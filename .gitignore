@@ -1,0 +1,19 @@
+# Secret environment variables
+.env
+
+# Vector database storage
+*.db
+project/database/vector_store.db
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# IDE / OS files
+.DS_Store
+.vscode/
+.idea/

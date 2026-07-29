@@ -23,7 +23,9 @@ class Generator:
     Handles source document citations and graceful refusal when information is unavailable.
     """
 
-    def __init__(self, mock: bool = False, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, mock: bool = False, model_name: str = "gemini-flash-latest"):
+
+
         self.mock = mock
         self.model_name = model_name
         self.client = None

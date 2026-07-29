@@ -43,15 +43,16 @@ class Retriever:
 
         try:
             response = self.client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-2",
                 contents=text
             )
-            if response.embedding and response.embedding.values:
-                return response.embedding.values
+            if response.embeddings and len(response.embeddings) > 0:
+                return response.embeddings[0].values
             return self._mock_embedding(text)
         except Exception as e:
-            # Fallback to mock embedding on network/API failure
+            # Fallback to mock embedding on API failure
             return self._mock_embedding(text)
+
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generates embedding vectors for a list of texts."""

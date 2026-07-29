@@ -28,30 +28,29 @@ class Retriever:
         self.mock = mock
         self.client = None
 
-        if not self.mock and HAS_GENAI:
+        if not self.mock:
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            if api_key:
+            if api_key and HAS_GENAI:
                 self.client = genai.Client(api_key=api_key)
-            else:
-                # Fallback to mock if API key is not set
-                self.mock = True
+            elif not HAS_GENAI:
+                raise ImportError("google-genai package is not installed.")
 
     def get_embedding(self, text: str) -> List[float]:
         """Generates embedding vector for a given text."""
-        if self.mock or not self.client:
+        if self.mock:
             return self._mock_embedding(text)
 
-        try:
-            response = self.client.models.embed_content(
-                model="gemini-embedding-2",
-                contents=text
-            )
-            if response.embeddings and len(response.embeddings) > 0:
-                return response.embeddings[0].values
-            return self._mock_embedding(text)
-        except Exception as e:
-            # Fallback to mock embedding on API failure
-            return self._mock_embedding(text)
+        if not self.client:
+            raise ValueError("GEMINI_API_KEY is missing. Please set GEMINI_API_KEY in your .env file or environment.")
+
+        response = self.client.models.embed_content(
+            model="gemini-embedding-2",
+            contents=text
+        )
+        if response.embeddings and len(response.embeddings) > 0:
+            return response.embeddings[0].values
+        raise RuntimeError("Failed to generate embedding vector from Gemini API.")
+
 
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:

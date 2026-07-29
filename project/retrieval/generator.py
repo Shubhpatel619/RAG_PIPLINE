@@ -34,17 +34,19 @@ class Generator:
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
             if api_key:
                 self.client = genai.Client(api_key=api_key)
-            else:
-                self.mock = True
 
     def generate_answer(self, query: str, chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
         """
         Given a query and retrieved chunks:
-        - If no chunks or low relevance, returns (REFUSAL_MESSAGE, [])
-        - Calls Gemini Flash with system prompt instructions
-        - Extracts citations
-        Returns: (answer_text, list_of_cited_filenames)
+        - Calls Gemini Flash with strict prompt instructions
+        - Returns grounded answer and cited document sources
         """
+        if self.mock:
+            return self._mock_generate(query, chunks, [c.get("filename", "") for c in chunks])
+
+        if not self.client:
+            return ("GEMINI_API_KEY is required to run live queries. Please set GEMINI_API_KEY in your .env file or environment.", [])
+
         if not chunks:
             return REFUSAL_MESSAGE, []
 
@@ -77,30 +79,23 @@ class Generator:
             f"Instructions: Answer the question using the context above. If the context does not contain the answer, reply with '{REFUSAL_MESSAGE}'."
         )
 
-        if self.mock or not self.client:
-            return self._mock_generate(query, chunks, sources)
-
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.1
-                )
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1
             )
+        )
 
-            answer = response.text.strip() if response.text else REFUSAL_MESSAGE
+        answer = response.text.strip() if response.text else REFUSAL_MESSAGE
 
-            # If model returned refusal message or equivalent
-            if "not have enough information" in answer.lower() or "not in the docs" in answer.lower():
-                return REFUSAL_MESSAGE, []
+        # If model returned refusal message or equivalent
+        if "not have enough information" in answer.lower() or "not in the docs" in answer.lower():
+            return REFUSAL_MESSAGE, []
 
-            return answer, sources
+        return answer, sources
 
-        except Exception as e:
-            # On API error, fallback to mock generation
-            return self._mock_generate(query, chunks, sources)
 
     def _mock_generate(self, query: str, chunks: List[Dict[str, Any]], sources: List[str]) -> Tuple[str, List[str]]:
         """

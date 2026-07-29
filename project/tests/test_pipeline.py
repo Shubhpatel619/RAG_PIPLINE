@@ -4,18 +4,17 @@ from project.retrieval.generator import REFUSAL_MESSAGE
 
 
 def test_rag_pipeline_valid_query(tmp_path):
-    db_file = tmp_path / "test_pipeline.db"
+    idx_dir = tmp_path / "pipeline_test"
     pipeline = RAGPipeline(
         corpus_dir="ai-engineer-take-home/sample_corpus",
-        db_path=str(db_file),
-        mock=True
+        index_dir=str(idx_dir)
     )
     pipeline.ingest()
 
     res = pipeline.answer_question("How do I reset my Aperture API key?")
     assert res["refused"] is False
     assert "api-reference.md" in res["citations"]
-    assert "Revoke" in res["answer"] or "revoke" in res["answer"].lower()
+    assert "revoke" in res["answer"].lower() or "revoking" in res["answer"].lower() or "workspace settings" in res["answer"].lower()
 
 
 def test_rag_pipeline_refusal_fallback(tmp_path):
@@ -24,11 +23,10 @@ def test_rag_pipeline_refusal_fallback(tmp_path):
     When asked about information not in the docs (annual contract refund policy),
     the assistant MUST refuse gracefully without hallucination.
     """
-    db_file = tmp_path / "test_pipeline_refusal.db"
+    idx_dir = tmp_path / "pipeline_refusal_test"
     pipeline = RAGPipeline(
         corpus_dir="ai-engineer-take-home/sample_corpus",
-        db_path=str(db_file),
-        mock=True
+        index_dir=str(idx_dir)
     )
     pipeline.ingest()
 

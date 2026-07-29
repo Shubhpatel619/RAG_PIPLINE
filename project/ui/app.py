@@ -5,34 +5,40 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from typing import Optional, List
-
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import Optional
+
 from project.retrieval.pipeline import RAGPipeline
 
-# Load API keys from .env file
 load_dotenv()
 
-app = FastAPI(title="Aperture RAG Q&A Assistant", version="1.0.0")
+app = FastAPI(title="Aperture LangChain RAG Q&A Assistant", version="2.0.0")
 
-# Initialize pipeline
-pipeline = RAGPipeline()
+# Initialize RAG Pipeline
+pipeline = None
 
 
-class QueryRequest(BaseModel):
-    query: str
-    top_k: Optional[int] = 3
-    mock: Optional[bool] = False
+def get_pipeline():
+    global pipeline
+    if pipeline is None:
+        pipeline = RAGPipeline()
+    return pipeline
 
 
 @app.on_event("startup")
 def startup_event():
     """Ensure documents are indexed on startup."""
-    pipeline.ingest()
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if api_key:
+        get_pipeline().ingest()
+
+
+class QueryRequest(BaseModel):
+    query: str
+    top_k: Optional[int] = 3
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -46,31 +52,32 @@ def read_root():
 
 @app.post("/api/query")
 def process_query(req: QueryRequest):
-    """Processes a user question through the RAG pipeline."""
+    """Processes a user question through the LangChain RAG pipeline."""
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query text cannot be empty.")
 
-    # Configure pipeline mock mode if requested
-    if req.mock:
-        pipeline.mock = True
-        pipeline.retriever.mock = True
-        pipeline.generator.mock = True
-    else:
-        # Auto-detect if GEMINI_API_KEY or GOOGLE_API_KEY is present
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            pipeline.mock = True
-            pipeline.retriever.mock = True
-            pipeline.generator.mock = True
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="GEMINI_API_KEY is missing. Please set GEMINI_API_KEY in your .env file or environment."
+        )
 
-    result = pipeline.answer_question(req.query, top_k=req.top_k)
+    result = get_pipeline().answer_question(req.query, top_k=req.top_k)
     return result
 
 
 @app.post("/api/reindex")
 def reindex_corpus():
-    """Forces re-indexing of the sample corpus."""
-    count = pipeline.ingest(force_reindex=True)
+    """Forces re-indexing of the sample corpus into FAISS."""
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="GEMINI_API_KEY is missing. Please set GEMINI_API_KEY in your .env file or environment."
+        )
+
+    count = get_pipeline().ingest(force_reindex=True)
     return {"message": "Re-indexing complete", "chunks_indexed": count}
 
 

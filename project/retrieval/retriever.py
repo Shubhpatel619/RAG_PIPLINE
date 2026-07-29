@@ -1,90 +1,16 @@
-import os
-import math
-import re
-from typing import List, Dict, Any
-from dotenv import load_dotenv
-from project.database.vector_store import VectorStore
-
-# Load environment variables from .env file
-load_dotenv()
-
-try:
-    from google import genai
-    from google.genai import types
-    HAS_GENAI = True
-except ImportError:
-    HAS_GENAI = False
+from typing import List, Tuple
+from langchain_core.documents import Document
+from project.database.vector_store import LangChainVectorStore
 
 
+class LangChainRetriever:
+    """Handles semantic retrieval of document chunks using LangChain FAISS store."""
 
-class Retriever:
-    """
-    Handles text embedding generation (via Google Gemini text-embedding-004 or mock fallback)
-    and vector similarity search.
-    """
-
-    def __init__(self, vector_store: VectorStore, mock: bool = False):
+    def __init__(self, vector_store: LangChainVectorStore):
         self.vector_store = vector_store
-        self.mock = mock
-        self.client = None
 
-        if not self.mock:
-            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            if api_key and HAS_GENAI:
-                self.client = genai.Client(api_key=api_key)
-            elif not HAS_GENAI:
-                raise ImportError("google-genai package is not installed.")
-
-    def get_embedding(self, text: str) -> List[float]:
-        """Generates embedding vector for a given text."""
-        if self.mock:
-            return self._mock_embedding(text)
-
-        if not self.client:
-            raise ValueError("GEMINI_API_KEY is missing. Please set GEMINI_API_KEY in your .env file or environment.")
-
-        response = self.client.models.embed_content(
-            model="gemini-embedding-2",
-            contents=text
-        )
-        if response.embeddings and len(response.embeddings) > 0:
-            return response.embeddings[0].values
-        raise RuntimeError("Failed to generate embedding vector from Gemini API.")
-
-
-
-    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generates embedding vectors for a list of texts."""
-        return [self.get_embedding(t) for t in texts]
-
-    def retrieve(self, query: str, top_k: int = 3, min_score: float = 0.2) -> List[Dict[str, Any]]:
-        """Retrieves top_k relevant chunks for a query."""
-        q_emb = self.get_embedding(query)
-        return self.vector_store.similarity_search(q_emb, top_k=top_k, min_score=min_score)
-
-    def _mock_embedding(self, text: str, dim: int = 256) -> List[float]:
+    def retrieve(self, query: str, top_k: int = 3) -> List[Tuple[Document, float]]:
         """
-        Creates a deterministic 256-dim term-frequency vector embedding for mock/offline execution.
-        Uses zlib.crc32 hashing to eliminate false collisions across vocabulary words.
+        Retrieves top_k relevant Document objects with similarity score.
         """
-        import zlib
-        
-        stopwords = {
-            "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "by", "from",
-            "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-            "do", "does", "did", "can", "could", "should", "would", "will", "i", "you",
-            "he", "she", "it", "we", "they", "my", "your", "his", "her", "its", "our",
-            "their", "this", "that", "these", "those", "u", "or", "and", "but", "if"
-        }
-
-        words = [w for w in re.findall(r'\w+', text.lower()) if w not in stopwords]
-        vec = [0.0] * dim
-        for w in words:
-            idx = zlib.crc32(w.encode('utf-8')) % dim
-            vec[idx] += 1.0
-
-        norm = math.sqrt(sum(x * x for x in vec))
-        if norm > 0:
-            vec = [x / norm for x in vec]
-        return vec
-
+        return self.vector_store.similarity_search_with_score(query, top_k=top_k)

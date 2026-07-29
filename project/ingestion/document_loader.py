@@ -1,42 +1,36 @@
 import os
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_core.documents import Document
 
 
-class DocumentLoader:
-    """Loads markdown documents from a corpus directory."""
+class LangChainDocumentLoader:
+    """Loads Markdown documents using LangChain document loaders."""
 
-    def __init__(self, corpus_dir: str):
+    def __init__(self, corpus_dir: str = "ai-engineer-take-home/sample_corpus"):
         self.corpus_dir = Path(corpus_dir)
 
-    def load_documents(self) -> List[Dict[str, Any]]:
+    def load_documents(self) -> List[Document]:
         """
-        Reads all .md files in corpus_dir.
-        Returns a list of dicts with keys: doc_id, filename, filepath, content, title
+        Scans corpus_dir for .md files and returns a list of LangChain Document objects.
+        Attaches metadata including filename and filepath.
         """
         if not self.corpus_dir.exists():
             raise FileNotFoundError(f"Corpus directory not found: {self.corpus_dir}")
 
-        documents = []
-        md_files = sorted(list(self.corpus_dir.glob("*.md")))
+        loader = DirectoryLoader(
+            str(self.corpus_dir),
+            glob="*.md",
+            loader_cls=TextLoader,
+            loader_kwargs={"encoding": "utf-8"}
+        )
+        documents = loader.load()
 
-        for filepath in md_files:
-            with open(filepath, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-
-            # Extract title from first H1 heading if present
-            title = filepath.stem.replace("-", " ").title()
-            for line in content.splitlines():
-                if line.startswith("# "):
-                    title = line.lstrip("# ").strip()
-                    break
-
-            documents.append({
-                "doc_id": filepath.stem,
-                "filename": filepath.name,
-                "filepath": str(filepath.resolve()),
-                "title": title,
-                "content": content
-            })
+        # Clean metadata to contain clean filename
+        for doc in documents:
+            source_path = Path(doc.metadata.get("source", ""))
+            doc.metadata["filename"] = source_path.name
+            doc.metadata["source"] = source_path.name
 
         return documents

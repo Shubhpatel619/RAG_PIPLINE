@@ -1,105 +1,63 @@
-import re
-from typing import List, Dict, Any
+from typing import List
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 
-class MarkdownChunker:
+class LangChainChunker:
     """
-    Header-aware chunker for Markdown documents.
-    Splits documents into semantic units based on headings while preserving metadata.
+    Header-aware chunker using LangChain text splitters.
+    Splits markdown by headings (#, ##, ###) followed by RecursiveCharacterTextSplitter.
     """
 
-    def __init__(self, max_chunk_size: int = 600, overlap: int = 100):
-        self.max_chunk_size = max_chunk_size
-        self.overlap = overlap
+    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 80):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
 
-    def chunk_document(self, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        # Headers to split by
+        self.headers_to_split_on = [
+            ("#", "Header 1"),
+            ("##", "Header 2"),
+            ("###", "Header 3"),
+        ]
+        self.header_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=self.headers_to_split_on,
+            strip_headers=False
+        )
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap
+        )
+
+    def chunk_documents(self, documents: List[Document]) -> List[Document]:
         """
-        Splits a single document dictionary into a list of chunk dictionaries.
+        Splits a list of raw LangChain documents into smaller retrievable chunk Documents.
         """
-        content = doc.get("content", "")
-        filename = doc.get("filename", "")
-        doc_id = doc.get("doc_id", "")
-        doc_title = doc.get("title", "")
+        chunked_docs = []
 
-        if not content:
-            return []
+        for doc in documents:
+            filename = doc.metadata.get("filename", "unknown.md")
+            
+            # First split by markdown headers
+            header_splits = self.header_splitter.split_text(doc.page_content)
 
-        # Regex to split by markdown headers (# Header, ## Header, ### Header)
-        header_pattern = re.compile(r'^(#{1,3}\s+.+)$', re.MULTILINE)
-        splits = header_pattern.split(content)
-
-        raw_sections = []
-        current_header = doc_title
-
-        i = 0
-        while i < len(splits):
-            part = splits[i].strip()
-            if not part:
-                i += 1
-                continue
-
-            if header_pattern.match(part):
-                current_header = part.lstrip('#').strip()
-                # If there's subsequent content for this header
-                if i + 1 < len(splits) and not header_pattern.match(splits[i + 1]):
-                    body = splits[i + 1].strip()
-                    if body:
-                        raw_sections.append((current_header, body))
-                    i += 2
-                else:
-                    i += 1
-            else:
-                raw_sections.append((current_header, part))
-                i += 1
-
-        chunks = []
-        chunk_idx = 0
-
-        for section_header, section_text in raw_sections:
-            # If section text is under max_chunk_size, keep as single chunk
-            if len(section_text) <= self.max_chunk_size:
-                chunk_id = f"{doc_id}_chunk_{chunk_idx}"
-                chunks.append({
-                    "chunk_id": chunk_id,
-                    "doc_id": doc_id,
-                    "filename": filename,
-                    "title": doc_title,
-                    "section_header": section_header,
-                    "text": f"[{filename} > {section_header}]\n{section_text}"
-                })
-                chunk_idx += 1
-            else:
-                # Split longer section into overlapping sub-chunks by line or word
-                words = section_text.split()
-                sub_chunks = []
-                start = 0
-                step = max(1, self.max_chunk_size // 6 - self.overlap // 6)
+            # Preserve source metadata across header splits
+            for split in header_splits:
+                split.metadata["filename"] = filename
+                split.metadata["source"] = filename
                 
-                while start < len(words):
-                    end = min(len(words), start + (self.max_chunk_size // 6))
-                    chunk_words = words[start:end]
-                    sub_chunks.append(" ".join(chunk_words))
-                    if end >= len(words):
-                        break
-                    start += step
+                # Format section header label
+                headers = [v for k, v in split.metadata.items() if k.startswith("Header")]
+                sec_header = " > ".join(headers) if headers else "General"
+                split.metadata["section_header"] = sec_header
 
-                for sub_text in sub_chunks:
-                    chunk_id = f"{doc_id}_chunk_{chunk_idx}"
-                    chunks.append({
-                        "chunk_id": chunk_id,
-                        "doc_id": doc_id,
-                        "filename": filename,
-                        "title": doc_title,
-                        "section_header": section_header,
-                        "text": f"[{filename} > {section_header}]\n{sub_text}"
-                    })
-                    chunk_idx += 1
+            # Further split long sections using RecursiveCharacterTextSplitter
+            sub_splits = self.text_splitter.split_documents(header_splits)
+            
+            for sub_split in sub_splits:
+                # Prepend source tag to page_content for context awareness
+                fn = sub_split.metadata.get("filename", "")
+                sec = sub_split.metadata.get("section_header", "General")
+                sub_split.page_content = f"[{fn} > {sec}]\n{sub_split.page_content}"
+                chunked_docs.append(sub_split)
 
-        return chunks
-
-    def chunk_documents(self, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Chunks multiple documents."""
-        all_chunks = []
-        for doc in docs:
-            all_chunks.extend(self.chunk_document(doc))
-        return all_chunks
+        return chunked_docs

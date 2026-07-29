@@ -1,122 +1,70 @@
-import sqlite3
-import json
+import os
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
-import numpy as np
+from typing import List, Tuple, Optional
+from langchain_core.documents import Document
+from langchain_community.vectorstores import FAISS
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-class VectorStore:
+class LangChainVectorStore:
     """
-    Lightweight, persistent Vector Store using SQLite and NumPy cosine similarity.
+    Persistent Vector Database using LangChain FAISS and GoogleGenerativeAIEmbeddings.
     """
 
-    def __init__(self, db_path: str = "project/database/vector_store.db"):
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+    def __init__(self, index_dir: str = "project/database/faiss_index"):
+        self.index_dir = Path(index_dir)
+        self.embeddings = None
+        self.vector_store: Optional[FAISS] = None
 
-    def _init_db(self):
-        """Initializes SQLite schema."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chunks (
-                    chunk_id TEXT PRIMARY KEY,
-                    doc_id TEXT,
-                    filename TEXT,
-                    title TEXT,
-                    section_header TEXT,
-                    text TEXT,
-                    embedding TEXT
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is missing. Please set GEMINI_API_KEY in your .env file or environment.")
+
+        # Initialize LangChain Google Embeddings
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-2",
+            google_api_key=api_key
+        )
+
+        # Load existing index if present
+        if self.index_dir.exists() and (self.index_dir / "index.faiss").exists():
+            try:
+                self.vector_store = FAISS.load_local(
+                    str(self.index_dir),
+                    self.embeddings,
+                    allow_dangerous_deserialization=True
                 )
-            """)
-            conn.commit()
+            except Exception:
+                self.vector_store = None
 
-    def clear(self):
-        """Clears all records in vector store."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM chunks")
-            conn.commit()
+    def add_documents(self, documents: List[Document]):
+        """Indexes document chunks into FAISS vector database and saves locally."""
+        if not documents:
+            return
 
-    def add_chunks(self, chunks: List[Dict[str, Any]], embeddings: List[List[float]]):
+        if self.vector_store is None:
+            self.vector_store = FAISS.from_documents(documents, self.embeddings)
+        else:
+            self.vector_store.add_documents(documents)
+
+        # Save FAISS index locally
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.vector_store.save_local(str(self.index_dir))
+
+    def similarity_search_with_score(self, query: str, top_k: int = 3) -> List[Tuple[Document, float]]:
         """
-        Stores chunks and their vector embeddings in SQLite.
+        Performs similarity search against FAISS index.
+        Returns a list of (Document, score) tuples.
         """
-        if len(chunks) != len(embeddings):
-            raise ValueError("Chunks and embeddings must have equal length.")
-
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            for chunk, emb in zip(chunks, embeddings):
-                cursor.execute("""
-                    INSERT OR REPLACE INTO chunks (chunk_id, doc_id, filename, title, section_header, text, embedding)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    chunk["chunk_id"],
-                    chunk.get("doc_id", ""),
-                    chunk.get("filename", ""),
-                    chunk.get("title", ""),
-                    chunk.get("section_header", ""),
-                    chunk.get("text", ""),
-                    json.dumps(emb)
-                ))
-            conn.commit()
-
-    def get_all_chunks(self) -> List[Tuple[Dict[str, Any], np.ndarray]]:
-        """Retrieves all chunks and associated embedding numpy arrays."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT chunk_id, doc_id, filename, title, section_header, text, embedding FROM chunks")
-            rows = cursor.fetchall()
-
-        results = []
-        for row in rows:
-            chunk = {
-                "chunk_id": row[0],
-                "doc_id": row[1],
-                "filename": row[2],
-                "title": row[3],
-                "section_header": row[4],
-                "text": row[5]
-            }
-            emb = np.array(json.loads(row[6]), dtype=np.float32)
-            results.append((chunk, emb))
-        return results
-
-    def similarity_search(self, query_embedding: List[float], top_k: int = 3, min_score: float = 0.2) -> List[Dict[str, Any]]:
-        """
-        Performs cosine similarity search against stored embeddings.
-        Returns top_k matching chunks with similarity score attached.
-        """
-        all_data = self.get_all_chunks()
-        if not all_data:
+        if self.vector_store is None:
             return []
-
-        q_vec = np.array(query_embedding, dtype=np.float32)
-        q_norm = np.linalg.norm(q_vec)
-        if q_norm == 0:
-            return []
-
-        q_vec_norm = q_vec / q_norm
-
-        scored_chunks = []
-        for chunk, emb_vec in all_data:
-            emb_norm = np.linalg.norm(emb_vec)
-            if emb_norm == 0:
-                continue
-            score = float(np.dot(q_vec_norm, emb_vec / emb_norm))
-            if score >= min_score:
-                chunk_copy = dict(chunk)
-                chunk_copy["score"] = score
-                scored_chunks.append(chunk_copy)
-
-        scored_chunks.sort(key=lambda x: x["score"], reverse=True)
-        return scored_chunks[:top_k]
+        return self.vector_store.similarity_search_with_score(query, k=top_k)
 
     def count(self) -> int:
-        """Returns total chunk count."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM chunks")
-            return cursor.fetchone()[0]
+        """Returns total count of indexed vectors."""
+        if self.vector_store is None:
+            return 0
+        return self.vector_store.index.ntotal

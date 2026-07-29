@@ -300,10 +300,8 @@
                 </div>
 
                 <div class="options-row">
-                    <label class="toggle-container">
-                        <input type="checkbox" id="mockToggle" checked> Use Deterministic Mock Mode
-                    </label>
-                    <span id="reindexBtn" style="cursor: pointer; text-decoration: underline;" onclick="reindexCorpus()">Re-index Corpus</span>
+                    <span style="font-weight: 500; color: var(--accent-blue);">⚡ Powered by LangChain + Gemini Flash</span>
+                    <span id="reindexBtn" style="cursor: pointer; text-decoration: underline;" onclick="reindexCorpus()">Re-index FAISS Corpus</span>
                 </div>
             </form>
 
@@ -316,13 +314,13 @@
         </div>
 
         <div id="loading" class="loading-spinner">
-            🔍 Searching corpus chunks & generating grounded answer...
+            🔍 Searching FAISS vector index & generating grounded answer with LangChain...
         </div>
 
         <div id="resultContainer" class="card result-container">
             <div class="status-header">
                 <span id="statusBadge" class="status-badge status-grounded">✓ Grounded Answer</span>
-                <span id="modelInfo" style="font-size: 0.8rem; color: var(--text-secondary);">Google Gemini Flash</span>
+                <span id="modelInfo" style="font-size: 0.8rem; color: var(--text-secondary);">LangChain + Gemini 2.0 Flash</span>
             </div>
 
             <div id="answerText" class="answer-body"></div>
@@ -349,15 +347,15 @@
 
         async function reindexCorpus() {
             const btn = document.getElementById('reindexBtn');
-            btn.innerText = "Indexing...";
+            btn.innerText = "Indexing FAISS...";
             try {
                 const res = await fetch('/api/reindex', { method: 'POST' });
                 const data = await res.json();
-                alert(`Corpus indexed! Total chunks: ${data.chunks_indexed}`);
+                alert(`Corpus indexed into FAISS! Total chunks: ${data.chunks_indexed}`);
             } catch (err) {
                 alert("Failed to re-index: " + err);
             } finally {
-                btn.innerText = "Re-index Corpus";
+                btn.innerText = "Re-index FAISS Corpus";
             }
         }
 
@@ -365,7 +363,6 @@
             const query = document.getElementById('queryInput').value.trim();
             if (!query) return;
 
-            const isMock = document.getElementById('mockToggle').checked;
             const loading = document.getElementById('loading');
             const resultContainer = document.getElementById('resultContainer');
 
@@ -376,7 +373,7 @@
                 const response = await fetch('/api/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: query, mock: isMock, top_k: 3 })
+                    body: JSON.stringify({ query: query, top_k: 3 })
                 });
 
                 const data = await response.json();
@@ -387,6 +384,7 @@
                 loading.style.display = 'none';
             }
         }
+
 
         function displayResult(data) {
             const resultContainer = document.getElementById('resultContainer');

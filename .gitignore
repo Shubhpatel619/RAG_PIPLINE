@@ -1,9 +1,16 @@
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
 # Secret environment variables
 .env
 
 # Vector database storage
 *.db
 project/database/vector_store.db
+project/database/faiss_index/
 
 # Python bytecode and cache
 __pycache__/

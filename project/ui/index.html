@@ -373,7 +373,11 @@
             try {
                 const res = await fetch('/api/reindex', { method: 'POST' });
                 const data = await res.json();
-                alert(`Corpus indexed into FAISS! Total chunks: ${data.chunks_indexed}`);
+                if (!res.ok) {
+                    alert("Failed to re-index: " + (data.detail || "Server error"));
+                } else {
+                    alert(`Corpus indexed into FAISS! Total chunks: ${data.chunks_indexed}`);
+                }
             } catch (err) {
                 alert("Failed to re-index: " + err);
             } finally {

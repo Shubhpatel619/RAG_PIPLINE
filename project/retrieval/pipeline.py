@@ -32,7 +32,9 @@ class RAGPipeline:
         Ingests and indexes sample corpus documents into FAISS vector store.
         Returns total number of document chunks indexed.
         """
-        if not force_reindex and self.vector_store.count() > 0:
+        if force_reindex:
+            self.vector_store.clear()
+        elif self.vector_store.count() > 0:
             return self.vector_store.count()
 
         loader = LangChainDocumentLoader(self.corpus_dir)

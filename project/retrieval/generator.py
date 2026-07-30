@@ -21,7 +21,8 @@ class LangChainGenerator:
     temporal version contradiction resolution, and prompt injection defense.
     """
 
-    def __init__(self, model_name: str = "gemini-flash-latest"):
+    def __init__(self, model_name: str = "gemini-2.0-flash"):
+        self.model_name = model_name
 
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
@@ -87,35 +88,50 @@ class LangChainGenerator:
         context_str = "\n\n".join(context_blocks)
         isolated_context = PromptInjectionGuard.wrap_context(context_str)
 
-        chain = self.prompt_template | self.llm
-        try:
-            response = chain.invoke({"query": query, "context": isolated_context})
+        # Candidate models to cycle through for maximum free quota
+        candidate_models = [
+            self.model_name,
+            "models/gemini-2.0-flash-lite",
+            "models/gemini-flash-latest"
+        ]
 
-            raw_content = response.content
-            if isinstance(raw_content, str):
-                answer = raw_content.strip()
-            elif isinstance(raw_content, list):
-                answer = "".join([block.get("text", "") if isinstance(block, dict) else str(block) for block in raw_content]).strip()
-            else:
-                answer = str(raw_content).strip() if raw_content else REFUSAL_MESSAGE
+        answer = None
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
-        except Exception as e:
-            # Deterministic fallback when rate limit (429 RESOURCE_EXHAUSTED) or API error occurs
-            q_lower = query.lower()
-            if "refund" in q_lower or "asana" in q_lower or "unsupported" in q_lower:
-                return REFUSAL_MESSAGE, []
-            
-            # Prioritize agentic tool results if present
+        for m_name in candidate_models:
+            try:
+                llm = ChatGoogleGenerativeAI(
+                    model=m_name,
+                    google_api_key=api_key,
+                    temperature=0.1,
+                    max_retries=1
+                )
+                chain = self.prompt_template | llm
+                response = chain.invoke({"query": query, "context": isolated_context})
+
+                raw_content = response.content
+                if isinstance(raw_content, str):
+                    answer = raw_content.strip()
+                elif isinstance(raw_content, list):
+                    answer = "".join([block.get("text", "") if isinstance(block, dict) else str(block) for block in raw_content]).strip()
+                else:
+                    answer = str(raw_content).strip()
+                
+                if answer:
+                    break
+            except Exception as e:
+                import logging
+                logging.warning(f"[MODEL QUOTA FALLBACK] Model '{m_name}' failed ({e}). Trying next model...")
+
+        if not answer:
+            import logging
+            logging.warning("[API ERROR] All Google Gemini models exhausted/failed. Falling back to returning retrieved document chunk.")
             if tool_results:
                 answer = "\n".join(tool_results.values())
-            elif "reset" in q_lower and "key" in q_lower:
-                answer = "To reset your Aperture API key, there is no remote reset endpoint. An owner or admin must go to Workspace Settings > API Keys in the dashboard and click 'Revoke', then generate a new key."
-            elif "rate limit" in q_lower:
-                answer = "The current Aperture API rate limit is 100 requests per minute as of version 3.1."
-            elif "auth" in q_lower or "header" in q_lower:
-                answer = "Aperture uses Authorization: Bearer <API_KEY> headers for API authentication."
+            elif documents:
+                answer = documents[0].page_content.strip()
             else:
-                answer = context_str[:300]
+                answer = REFUSAL_MESSAGE
 
         if not answer:
             answer = REFUSAL_MESSAGE

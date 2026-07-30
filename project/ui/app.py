@@ -6,8 +6,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -16,6 +16,14 @@ from project.retrieval.pipeline import RAGPipeline
 load_dotenv()
 
 app = FastAPI(title="Aperture LangChain RAG Q&A Assistant", version="2.0.0")
+
+
+@app.exception_handler(Exception)
+def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)}
+    )
 
 # Initialize RAG Pipeline
 pipeline = None

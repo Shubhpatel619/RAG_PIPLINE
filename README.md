@@ -133,27 +133,50 @@ This verifies:
 
 ---
 
+## Running Benchmark Evaluation Suite
+
+Run the automated evaluation benchmark to score the pipeline across 8 test cases:
+
+```bash
+python evaluate.py
+```
+
+This evaluates:
+1. **Grounded Answer Accuracy**: Correct extraction of document facts.
+2. **Temporal Contradiction Resolution**: Prioritizing current specs (v3.1 rate limit **100/min**) over legacy ones (v2.0 **60/min** in `changelog.md`). By default, non-versioned statements are assumed to be current.
+3. **Refusal Precision**: 100% refusal accuracy on out-of-scope queries (e.g. annual contract refund policy).
+4. **Agentic Tool Calling**: Tool execution for Date and Math calculation queries.
+5. **Prompt Injection Defense**: Sanitizing and isolating adversarial prompt injection payloads embedded in documents.
+
+---
+
 ## Core Architecture & Mechanics
 
 1. **Chunking Strategy (`project/ingestion/chunker.py`)**:
    - Header-aware Markdown chunking. Splits text at `#`, `##`, `###` headings to keep semantic sections intact while embedding document filename and heading tags into chunk headers (`[api-reference.md > Resetting an API key]`).
 
 2. **Embeddings & Vector Store (`project/database/vector_store.py` & `project/retrieval/retriever.py`)**:
-   - Generates 768-dim embeddings via Google Gemini `text-embedding-004`.
-   - Stores chunks and vectors in a local SQLite database (`vector_store.db`) with normalized NumPy matrix operations for ultra-fast cosine similarity search.
+   - Generates 768-dim embeddings via Google Gemini embeddings or FAISS index (`project/database/faiss_index`).
+   - FAISS vector index handles fast nearest-neighbor similarity search.
 
 3. **Grounded Generation & Citation (`project/retrieval/generator.py`)**:
-   - Uses `gemini-1.5-flash` with system prompts enforcing strict grounding: the model is restricted to facts explicitly in context chunks and must cite exact source documents.
+   - Uses `gemini-flash-latest` with system prompts enforcing strict grounding: the model is restricted to facts explicitly in context chunks and must cite exact source documents.
 
 4. **"I Don't Know" / Refusal Handling**:
    - Primary defense against hallucination: If retrieved chunks do not meet relevance thresholds or do not contain facts needed to answer the question, the system returns a standardized refusal message:
      `"I do not have enough information in the provided documentation to answer your question."`
 
+5. **Bonus Features Implemented**:
+   - **Evaluation Suite**: `evaluate.py` scores pipeline performance against 8 benchmark tests.
+   - **Temporal Conflict Resolution**: Resolves version changes in `changelog.md` by prioritizing current releases over outdated ones. If unversioned, assumes current version by default.
+   - **Agentic Tools (`project/retrieval/tools.py`)**: Automatic tool routing for Date/Time lookup and Rate Limit math calculations.
+   - **Prompt Injection Defense (`project/ingestion/security.py`)**: Sanitizes malicious prompt injection strings and wraps retrieved context in data-isolation tags (`<untrusted_document_context>`).
+
 ---
 
 ## Trade-offs & Future Extensions
 
-- **Vector Storage**: Used SQLite + NumPy cosine similarity instead of an external vector DB service (like Pinecone/Weaviate) to minimize external setup dependencies and keep execution 100% self-contained.
+- **Vector Storage**: Used FAISS vector store for fast, self-contained local similarity search without cloud DB overhead.
 - **Future Improvements**:
-  - Add version-aware temporal conflict resolution for changelogs.
   - Implement hybrid search (BM25 keyword search + Dense Vector search) for enhanced retrieval precision.
+

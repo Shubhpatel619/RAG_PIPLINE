@@ -121,7 +121,7 @@ class LangChainGenerator:
                     break
             except Exception as e:
                 import logging
-                logging.warning(f"[MODEL QUOTA FALLBACK] Model '{m_name}' failed ({e}). Trying next model...")
+                logging.debug(f"[MODEL QUOTA FALLBACK] Model '{m_name}' failed ({e}). Trying next candidate model...")
 
         if not answer:
             import logging

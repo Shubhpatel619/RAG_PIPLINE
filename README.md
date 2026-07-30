@@ -71,7 +71,7 @@ $env:GEMINI_API_KEY="your_api_key_here"
 export GEMINI_API_KEY="your_api_key_here"
 ```
 
-> **Note:** If `GEMINI_API_KEY` is not set in `.env` or system env, the pipeline automatically runs in `--mock` mode with a deterministic stub.
+> **Note:** Ensure your `GEMINI_API_KEY` is set in `.env` or system environment variables before running queries.
 
 
 ---
@@ -83,11 +83,7 @@ export GEMINI_API_KEY="your_api_key_here"
 Run `qa.py` directly with your question:
 
 ```bash
-# Live API mode
 python qa.py "How do I reset my Aperture API key?"
-
-# Offline Mock mode (no API key required)
-python qa.py "How do I reset my Aperture API key?" --mock
 ```
 
 #### Example Output
